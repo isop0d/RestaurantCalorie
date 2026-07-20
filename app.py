@@ -84,8 +84,10 @@ def index():
 
 # --- My Google Maps page (the built React app) ---
 # `npm run build` puts the finished React page in the "dist" folder.
-# This route serves that page so the map works on port 5000 without Vite.
+# Both routes serve that same page; the React app looks at the URL and shows
+# the live map on /explore (and /map) so the map works on port 5000 without Vite.
 @app.route("/map")
+@app.route("/explore")
 def map_page():
     return send_from_directory("dist", "index.html")
 
