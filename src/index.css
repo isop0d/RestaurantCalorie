@@ -1,3 +1,11 @@
+/* Load the same hand-drawn font the login/register pages use. */
+@font-face {
+  font-family: 'Excalifont';
+  src: url('https://excalidraw.nyc3.cdn.digitaloceanspaces.com/fonts/Excalifont-Regular.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+}
+
 *,
 *::before,
 *::after {
@@ -6,6 +14,8 @@
 
 body {
   margin: 0;
+  background-color: rgb(255, 255, 255);
+  min-height: 100vh;
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
@@ -15,14 +25,69 @@ body {
   min-height: 100vh;
 }
 
-/* Home page wrapper: give the map and text some breathing room. */
-.home-page {
-  max-width: 900px;
-  margin: 0 auto;
-  padding: 30px 20px;
+/* Full-page wrapper, same as .page-container on login/register. */
+.page-container {
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
 }
 
-/* The box the Google map draws into. Black border matches the login/register look. */
+/* The corner images are positioned exactly like the login page. */
+.page-container img {
+  position: absolute;
+  width: 200px;
+  height: auto;
+}
+
+.top-middle {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  top: 10%;
+}
+
+.bottom-left {
+  left: 0%;
+  bottom: 0%;
+  transform: translateX(-20%);
+}
+
+.top-right {
+  right: 0%;
+  top: 0%;
+  transform: translateY(-8%);
+}
+
+/* White bordered card, matching .content-section on login/register.
+   The map is wider than a login form, so this card is a bit wider. */
+.content-section {
+  max-width: 500px;
+  width: 100%;
+  padding: 30px;
+  transform: translateY(200px);
+  background: white;
+  border: 2px solid black;
+}
+
+/* The map needs more room than a form, so widen the card just for this page
+   and push it down so the top-middle salad image sits fully above it. */
+.map-section {
+  max-width: 760px;
+  transform: translateY(140px);
+}
+
+.map-title {
+  font-family: 'Excalifont', system-ui, sans-serif;
+  margin: 0 0 8px;
+}
+
+.map-welcome {
+  font-family: 'Excalifont', system-ui, sans-serif;
+  margin: 0 0 20px;
+}
+
+/* The box the Google map draws into. Black border matches the login look. */
 .map-container {
   width: 100%;
   height: 500px;
@@ -41,5 +106,53 @@ body {
   padding: 20px;
   border: 2px solid black;
   border-radius: 10px;
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: 'Excalifont', system-ui, sans-serif;
+  color: rgb(136, 69, 27);
+}
+
+/* Green scribble button, copied from the login page's Log-In button.
+   On hover the scribble background image swaps, just like login. */
+.btn-outline-info {
+  display: block;
+  width: 100%;
+  font-family: 'Excalifont', system-ui, sans-serif;
+  font-size: 18px;
+  padding: 10px;
+  margin-top: 20px;
+  text-align: center;
+  text-decoration: none;
+  color: black;
+  background: url('./assets/scribble.png') repeat;
+  background-size: 150px;
+  border-radius: 10px;
+  border: 2px solid black;
+}
+
+.btn-outline-info:hover {
+  background: url('./assets/scribble-hover.png') repeat;
+  cursor: pointer;
+}
+
+/* Home link + buttons, copied from the login page so hover matches. */
+.start,
+button {
+  border: 2px solid rgb(0, 0, 0);
+  border-radius: 5px;
+  text-decoration: none;
+  cursor: pointer;
+  height: 20px;
+  width: 100px;
+  display: flex;
+  justify-content: center;
+  font-size: 10px;
+  font-family: 'Excalifont', system-ui, -apple-system, sans-serif;
+  align-items: center;
+  margin: 20px auto 0;
+  text-align: center;
+  color: black;
+}
+
+.start:hover,
+button:hover {
+  background-color: #b5b5b5;
 }
