@@ -1,7 +1,8 @@
-from flask import Flask, render_template, flash, redirect, session
+from flask import Flask, render_template, flash, redirect, session, request, jsonify
 from forms import RegistrationForm, LogInForm
 from dotenv import load_dotenv
 from supabase import create_client
+from menu import fetch_and_cache_menu, search_restaurants
 import os
 
 # Read the .env file and put its values into environment variables.
@@ -72,6 +73,36 @@ def start():
 @app.route("/index")
 def index():
     return render_template("index.html")
+
+
+@app.route("/api/search", methods=['POST'])
+def api_search():
+    body = request.get_json(silent=True) or {}
+    try:
+        results = search_restaurants(
+            postal_code=body.get("postal_code"),
+            city=body.get("city"),
+            state=body.get("state"),
+            country=body.get("country", "US"),
+            name=body.get("name"),
+        )
+    except ValueError as err:
+        return jsonify({"error": str(err)}), 400
+    except RuntimeError as err:
+        return jsonify({"error": str(err)}), 502
+    return jsonify({"restaurants": results, "count": len(results)})
+
+
+@app.route("/api/fetch-menu", methods=['POST'])
+def api_fetch_menu():
+    body = request.get_json(silent=True) or {}
+    try:
+        result = fetch_and_cache_menu(body.get("openmenu_id"))
+    except ValueError as err:
+        return jsonify({"error": str(err)}), 400
+    except RuntimeError as err:
+        return jsonify({"error": str(err)}), 502
+    return jsonify(result)
 
 
 if __name__ == "__main__":
