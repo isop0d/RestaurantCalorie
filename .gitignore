@@ -28,6 +28,10 @@ dist-ssr
 *.sln
 *.sw?
 
+# Local Python virtual environment
+venv/
+
+
 .env
 __pycache__/
 *.pyc
