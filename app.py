@@ -35,9 +35,17 @@ def register():
         check_user = supabase.table("Users").select("*").eq(
             "username", form.username.data
         ).execute()
+        
+        check_email = supabase.table("Users").select("*").eq(
+            "email", form.email.data
+        ).execute()
 
         if check_user.data:
             flash("Username already taken, please try again", 'danger')
+            return render_template('register.html', form=form)
+        
+        if check_email.data:
+            flash("Email already in use, please try again", 'danger')
             return render_template('register.html', form=form)
 
         supabase.table("Users").insert({
