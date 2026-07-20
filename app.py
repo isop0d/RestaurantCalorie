@@ -1,4 +1,4 @@
-from flask import Flask, render_template, flash, redirect, session, request, jsonify
+from flask import Flask, render_template, flash, redirect, session, request, jsonify, send_from_directory
 from forms import RegistrationForm, LogInForm
 from dotenv import load_dotenv
 from supabase import create_client
@@ -81,6 +81,19 @@ def start():
 @app.route("/index")
 def index():
     return render_template("index.html")
+
+# --- My Google Maps page (the built React app) ---
+# `npm run build` puts the finished React page in the "dist" folder.
+# This route serves that page so the map works on port 5000 without Vite.
+@app.route("/map")
+def map_page():
+    return send_from_directory("dist", "index.html")
+
+# The built page loads its JavaScript, CSS, and images from /assets/...
+# so we serve those files straight out of dist/assets.
+@app.route("/assets/<path:filename>")
+def map_assets(filename):
+    return send_from_directory("dist/assets", filename)
 
 
 @app.route("/api/search", methods=['POST'])
