@@ -15,7 +15,7 @@ function Map({ center = { lat: 40.7128, lng: -74.006 }, zoom = 13 }) {
   useEffect(() => {
     // If the key is missing, tell the developer instead of loading nothing.
     if (!isGoogleMapsConfigured) {
-      setError('Google Maps is not set up yet. Add VITE_GOOGLE_MAPS_API_KEY to .env')
+      setError('fix soon')
       return
     }
 
