@@ -15,6 +15,13 @@ body {
   min-height: 100vh;
 }
 
+/* Home page wrapper: give the map and text some breathing room. */
+.home-page {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 30px 20px;
+}
+
 /* The box the Google map draws into. Black border matches the login/register look. */
 .map-container {
   width: 100%;
