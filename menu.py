@@ -69,7 +69,9 @@ def _admin_client() -> Client:
     return create_client(url, service_key)
 
 
-def fetch_and_cache_menu(openmenu_id: str) -> dict:
+def _openmenu_restaurant(openmenu_id):
+    """Fetch a restaurant's full profile + menu from OpenMenu; return the
+    `result` dict. openmenu_id="sample" uses the sandbox (no key, no credit)."""
     if not isinstance(openmenu_id, str) or not openmenu_id:
         raise ValueError("openmenu_id must be a non-empty string")
 
@@ -89,31 +91,13 @@ def fetch_and_cache_menu(openmenu_id: str) -> dict:
         raise RuntimeError(
             f"OpenMenu request failed (status {api_status or resp.status_code})"
         )
+    return result
 
-    info = result.get("restaurant_info", {})
-    address = _format_address(info)
 
-    supabase = _admin_client()
-
-    restaurant_resp = (
-        supabase.table("restaurants")
-        .upsert(
-            {
-                "openmenu_id": result.get("id"),
-                "name": info.get("restaurant_name") or "Unknown restaurant",
-                "address": address or None,
-                "lat": _to_number(info.get("latitude")),
-                "lng": _to_number(info.get("longitude")),
-            },
-            on_conflict="openmenu_id",
-        )
-        .execute()
-    )
-    restaurant = restaurant_resp.data[0]
-
-    # Flatten menus -> groups -> items, deduping by item name since
-    # (restaurant_id, name) is our unique key and the same item can appear on
-    # multiple menus (e.g. lunch and dinner).
+def _extract_items(result):
+    """Flatten OpenMenu's menus -> groups -> items into a deduped list of
+    {name, description, price_cents, calories, dietary_tags}. Deduped by name
+    since the same item can appear on multiple menus (e.g. lunch and dinner)."""
     items = {}
     for menu in result.get("menus") or []:
         for group in menu.get("menu_groups") or []:
@@ -123,32 +107,62 @@ def fetch_and_cache_menu(openmenu_id: str) -> dict:
                     continue
                 tags = _dietary_tags(item)
                 items[name] = {
-                    "restaurant_id": restaurant["id"],
                     "name": name,
                     "description": item.get("menu_item_description") or None,
                     "price_cents": _to_cents(item.get("menu_item_price")),
                     "calories": _to_number(item.get("menu_item_calories")),
                     "dietary_tags": tags or None,
                 }
+    return list(items.values())
+
+
+def fetch_menu_items(openmenu_id):
+    """Read-only: fetch a restaurant's menu items from OpenMenu WITHOUT caching.
+    Returns [{name, description, price_cents, calories, dietary_tags}]. Needs no
+    service-role key — used by the no-cache MVP loop."""
+    return _extract_items(_openmenu_restaurant(openmenu_id))
+
+
+def fetch_and_cache_menu(openmenu_id: str) -> dict:
+    result = _openmenu_restaurant(openmenu_id)
+    info = result.get("restaurant_info", {})
+
+    supabase = _admin_client()
+    restaurant_resp = (
+        supabase.table("restaurants")
+        .upsert(
+            {
+                "openmenu_id": result.get("id"),
+                "name": info.get("restaurant_name") or "Unknown restaurant",
+                "address": _format_address(info) or None,
+                "lat": _to_number(info.get("latitude")),
+                "lng": _to_number(info.get("longitude")),
+            },
+            on_conflict="openmenu_id",
+        )
+        .execute()
+    )
+    restaurant = restaurant_resp.data[0]
+
+    rows = [
+        {**item, "restaurant_id": restaurant["id"]}
+        for item in _extract_items(result)
+    ]
 
     inserted = 0
-    if items:
+    if rows:
         # ignore_duplicates -> ON CONFLICT DO NOTHING: re-fetching a menu never
         # overwrites rows that already hold Gemini nutrition estimates.
         items_resp = (
             supabase.table("menu_items")
-            .upsert(
-                list(items.values()),
-                on_conflict="restaurant_id,name",
-                ignore_duplicates=True,
-            )
+            .upsert(rows, on_conflict="restaurant_id,name", ignore_duplicates=True)
             .execute()
         )
         inserted = len(items_resp.data or [])
 
     return {
         "restaurant": {"id": restaurant["id"], "name": restaurant["name"]},
-        "items_found": len(items),
+        "items_found": len(rows),
         "items_inserted": inserted,
     }
 

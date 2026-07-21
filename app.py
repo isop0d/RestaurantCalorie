@@ -12,7 +12,8 @@ from flask import (
 from forms import RegistrationForm, LogInForm
 from dotenv import load_dotenv
 from supabase import create_client
-from menu import fetch_and_cache_menu, search_restaurants
+from menu import fetch_and_cache_menu, fetch_menu_items, search_restaurants
+from gemini import estimate_calories
 import os
 
 
@@ -200,6 +201,49 @@ def api_fetch_menu():
         return jsonify({"error": str(err)}), 502
 
     return jsonify(result)
+
+
+@app.route("/api/search-with-menus", methods=["POST"])
+def api_search_with_menus():
+    """The MVP loop: search a location, then for the first `limit` restaurants
+    pull each menu and get Gemini calorie estimates. No caching yet, so every
+    call spends OpenMenu credits (1 search + 1 per restaurant menu)."""
+    body = request.get_json(silent=True) or {}
+    limit = body.get("limit", 3)
+
+    try:
+        restaurants = search_restaurants(
+            postal_code=body.get("postal_code"),
+            city=body.get("city"),
+            state=body.get("state"),
+            country=body.get("country", "US"),
+            name=body.get("name"),
+        )
+
+    except ValueError as err:
+        return jsonify({"error": str(err)}), 400
+
+    except RuntimeError as err:
+        return jsonify({"error": str(err)}), 502
+
+    results = []
+    for restaurant in restaurants[:limit]:
+        try:
+            items = fetch_menu_items(restaurant["openmenu_id"])
+            estimates = estimate_calories(items)
+            results.append({"restaurant": restaurant, "items": estimates})
+
+        except Exception as err:  # one bad restaurant shouldn't kill the search
+            results.append(
+                {"restaurant": restaurant, "items": [], "error": str(err)}
+            )
+
+    return jsonify(
+        {
+            "restaurants": results,
+            "count": len(results),
+        }
+    )
 
 
 if __name__ == "__main__":
