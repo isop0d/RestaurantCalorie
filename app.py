@@ -145,12 +145,11 @@ def logout():
 def index():
     return render_template("index.html")
 
-
-# React map page
+# React explore/map page
 @app.route("/map")
+@app.route("/explore")
 def map_page():
     return send_from_directory("dist", "index.html")
-
 
 # React map assets
 @app.route("/assets/<path:filename>")
