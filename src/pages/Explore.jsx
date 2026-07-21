@@ -1,18 +1,112 @@
-import Map from "../components/Map";
+import { useMemo, useState } from "react"
+import Map from "../components/Map"
+import SearchFilters from "../components/SearchFilters"
+import {
+  SAMPLE_RESTAURANTS,
+  fetchRealRestaurants,
+  filterRestaurants,
+} from "../lib/restaurantSearch"
 
-// The Explore page shows the live Google Map. The nav bar's
-// "Explore Restaurants" link points here (/explore).
+// The user's starting point for distance. Defaults to the map center (NYC);
+// if the browser shares location we could update this later.
+const DEFAULT_USER = { lat: 40.7128, lng: -74.006 }
+
+// The Explore page: live map on top, then a search form to filter restaurants
+// by calories, dietary restrictions, and distance from the user.
 function Explore({ username }) {
+  // The controls' current values.
+  const [filters, setFilters] = useState({
+    minCalories: "",
+    maxCalories: "",
+    dietary: [],
+    maxDistance: 10,
+  })
+
+  // The restaurants we filter over. We try real API data first and quietly
+  // fall back to sample data if the API is not available on this machine.
+  const [restaurants, setRestaurants] = useState(SAMPLE_RESTAURANTS)
+  // Only recompute the filtered results when the user presses Search.
+  const [appliedFilters, setAppliedFilters] = useState(null)
+  const [loading, setLoading] = useState(false)
+
+  // Run the filters over the current restaurant list.
+  const results = useMemo(() => {
+    if (!appliedFilters) return []
+    return filterRestaurants(restaurants, {
+      minCalories: appliedFilters.minCalories === "" ? null : Number(appliedFilters.minCalories),
+      maxCalories: appliedFilters.maxCalories === "" ? null : Number(appliedFilters.maxCalories),
+      dietary: appliedFilters.dietary,
+      maxDistance: appliedFilters.maxDistance,
+      userLat: DEFAULT_USER.lat,
+      userLng: DEFAULT_USER.lng,
+    })
+  }, [restaurants, appliedFilters])
+
+  const handleSearch = async () => {
+    setLoading(true)
+    // Try real restaurants first. If the API is not set up (no keys / offline),
+    // fetchRealRestaurants returns null and we keep using the sample data.
+    const real = await fetchRealRestaurants({ city: "New York", state: "NY" })
+    setRestaurants(real || SAMPLE_RESTAURANTS)
+    setAppliedFilters({ ...filters })
+    setLoading(false)
+  }
+
   return (
     <main className="explore">
       <h1 className="explore-title">Explore Restaurants</h1>
       <p className="explore-welcome">
-        Welcome, {username}! Here are restaurants near you.
+        Welcome, {username}! Search restaurants by calories, dietary needs, and
+        distance.
       </p>
 
       <Map />
+
+      <SearchFilters
+        filters={filters}
+        setFilters={setFilters}
+        onSearch={handleSearch}
+      />
+
+      <div className="results">
+        {loading && <p className="no-results">Searching…</p>}
+
+        {!loading && appliedFilters && results.length === 0 && (
+          <p className="no-results">No restaurants match those filters.</p>
+        )}
+
+        {!loading &&
+          results.map((entry) => (
+            <div key={entry.restaurant.name} className="result-card">
+              <div className="result-head">
+                <h3>{entry.restaurant.name}</h3>
+                {entry.distance != null && (
+                  <span className="distance">{entry.distance.toFixed(1)} mi</span>
+                )}
+              </div>
+              {entry.restaurant.cuisine && (
+                <p className="cuisine">{entry.restaurant.cuisine}</p>
+              )}
+              <ul className="item-list">
+                {entry.items.map((item) => (
+                  <li key={item.name}>
+                    <span className="item-name">{item.name}</span>
+                    <span className="item-cals">
+                      {item.calories != null ? `${item.calories} cal` : "—"}
+                    </span>
+                    {item.dietary_tags?.length > 0 && (
+                      <span className="item-tags">
+                        {item.dietary_tags.join(", ")}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+      </div>
     </main>
-  );
+  )
 }
 
-export default Explore;
+export default Explore
