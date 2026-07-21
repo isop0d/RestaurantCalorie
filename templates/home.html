@@ -3,16 +3,100 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NutriSpot</title>
+    <title>NutriMap</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='css/homepage.css') }}"
+    />
 </head>
 
 <body>
-    <div id="root"></div>
+    <header class="navbar">
+        <a class="logo" href="{{ url_for('start') }}">
+            <img
+                src="{{ url_for('static', filename='images/leaf.svg') }}"
+                alt=""
+            />
+            <span>Nutri<span>Map</span></span>
+        </a>
 
-    <script>
-        const username = "{{ username }}";
-    </script>
+        <nav class="nav-links">
+            <a class="active" href="{{ url_for('start') }}">Home</a>
+            <a href="{{ url_for('map_page') }}">Explore Restaurants</a>
+        </nav>
 
-    <script type="module" src="/src/main.jsx"></script>
+        <div class="account-links">
+            {% if username %}
+                <span>Hi, {{ username }}!</span>
+            {% else %}
+                <a class="login-button" href="{{ url_for('login') }}">
+                    Log In
+                </a>
+
+                <a class="signup-button" href="{{ url_for('register') }}">
+                    Sign Up
+                </a>
+            {% endif %}
+        </div>
+    </header>
+
+    <main class="hero">
+        <img
+            class="left-plant"
+            src="{{ url_for('static', filename='images/plant.svg') }}"
+            alt=""
+        />
+
+        <section class="hero-content">
+            <h1>
+                Find restaurants
+                <br />
+                that fit your
+                <br />
+                <span>lifestyle.</span>
+            </h1>
+
+            <p>
+                Search nearby restaurants, compare nutrition information,
+                and filter options by calories, cuisine, distance, and dietary needs.
+            </p>
+
+            <a class="explore-link" href="{{ url_for('map_page') }}">
+                <span class="button explore-button">
+                    <span class="search-symbol">⌕</span>
+                    Explore Restaurants
+                </span>
+            </a>
+        </section>
+
+        <section class="map-section">
+            <img
+                class="hero-map"
+                src="{{ url_for('static', filename='images/hero-map.png') }}"
+                alt="Map showing nearby restaurants"
+            />
+        </section>
+
+        <div class="bottom-images">
+            <img
+                class="lemonade"
+                src="{{ url_for('static', filename='images/lemonade.svg') }}"
+                alt=""
+            />
+
+            <img
+                class="fruit-salad"
+                src="{{ url_for('static', filename='images/salad.svg') }}"
+                alt=""
+            />
+        </div>
+
+        <img
+            class="right-plant"
+            src="{{ url_for('static', filename='images/plant.svg') }}"
+            alt=""
+        />
+    </main>
 </body>
 </html>
