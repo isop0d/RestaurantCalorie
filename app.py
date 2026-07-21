@@ -246,5 +246,57 @@ def api_search_with_menus():
     )
 
 
+@app.route("/api/explore-search", methods=["POST"])
+def api_explore_search():
+    """Search feature endpoint for the /explore page. Like search-with-menus,
+    but it KEEPS each item's dietary_tags (and the restaurant's lat/lng) so the
+    front end can filter by calories, dietary restrictions, and distance.
+    Additive: does not change the existing search endpoints."""
+    body = request.get_json(silent=True) or {}
+    limit = body.get("limit", 3)
+
+    try:
+        restaurants = search_restaurants(
+            postal_code=body.get("postal_code"),
+            city=body.get("city"),
+            state=body.get("state"),
+            country=body.get("country", "US"),
+            name=body.get("name"),
+        )
+    except ValueError as err:
+        return jsonify({"error": str(err)}), 400
+    except RuntimeError as err:
+        return jsonify({"error": str(err)}), 502
+
+    results = []
+    for restaurant in restaurants[:limit]:
+        try:
+            items = fetch_menu_items(restaurant["openmenu_id"])
+            estimates = estimate_calories(items)
+            # Gemini returns calories by name; fold them back onto the items
+            # while keeping the dietary tags OpenMenu already gave us.
+            est_by_name = {e["name"]: e["calories"] for e in estimates}
+            merged = [
+                {
+                    "name": it["name"],
+                    "description": it.get("description"),
+                    "calories": (
+                        it["calories"]
+                        if it.get("calories") is not None
+                        else est_by_name.get(it["name"])
+                    ),
+                    "dietary_tags": it.get("dietary_tags") or [],
+                }
+                for it in items
+            ]
+            results.append({"restaurant": restaurant, "items": merged})
+        except Exception as err:  # one bad restaurant shouldn't kill the search
+            results.append(
+                {"restaurant": restaurant, "items": [], "error": str(err)}
+            )
+
+    return jsonify({"restaurants": results, "count": len(results)})
+
+
 if __name__ == "__main__":
     app.run(debug=True)
