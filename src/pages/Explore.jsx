@@ -16,6 +16,7 @@ const DEFAULT_USER = { lat: 40.7128, lng: -74.006 }
 function Explore({ username }) {
   // The controls' current values.
   const [filters, setFilters] = useState({
+    zip: "",
     minCalories: "",
     maxCalories: "",
     dietary: [],
@@ -28,6 +29,9 @@ function Explore({ username }) {
   // Only recompute the filtered results when the user presses Search.
   const [appliedFilters, setAppliedFilters] = useState(null)
   const [loading, setLoading] = useState(false)
+  // Reference point for the distance filter — updated to the searched area on
+  // each search so distances make sense for any zip, not just New York.
+  const [userLocation, setUserLocation] = useState(DEFAULT_USER)
 
   // Run the filters over the current restaurant list.
   const results = useMemo(() => {
@@ -37,17 +41,33 @@ function Explore({ username }) {
       maxCalories: appliedFilters.maxCalories === "" ? null : Number(appliedFilters.maxCalories),
       dietary: appliedFilters.dietary,
       maxDistance: appliedFilters.maxDistance,
-      userLat: DEFAULT_USER.lat,
-      userLng: DEFAULT_USER.lng,
+      userLat: userLocation.lat,
+      userLng: userLocation.lng,
     })
-  }, [restaurants, appliedFilters])
+  }, [restaurants, appliedFilters, userLocation])
 
   const handleSearch = async () => {
     setLoading(true)
-    // Try real restaurants first. If the API is not set up (no keys / offline),
-    // fetchRealRestaurants returns null and we keep using the sample data.
-    const real = await fetchRealRestaurants({ city: "New York", state: "NY" })
-    setRestaurants(real || SAMPLE_RESTAURANTS)
+    // Search by the entered zip code. If it's blank, or the API returns nothing
+    // (no keys, offline, or a zip OpenMenu doesn't cover), fall back to sample
+    // data so the page still shows something to work with.
+    const zip = filters.zip.trim()
+    const real = zip ? await fetchRealRestaurants({ postal_code: zip }) : null
+    const list = real || SAMPLE_RESTAURANTS
+    setRestaurants(list)
+
+    // Anchor the distance filter to the average location of the results, so
+    // "within N miles" is measured from the searched area rather than New York.
+    const located = list.filter((e) => typeof e.restaurant.lat === "number")
+    setUserLocation(
+      located.length > 0
+        ? {
+            lat: located.reduce((s, e) => s + e.restaurant.lat, 0) / located.length,
+            lng: located.reduce((s, e) => s + e.restaurant.lng, 0) / located.length,
+          }
+        : DEFAULT_USER
+    )
+
     setAppliedFilters({ ...filters })
     setLoading(false)
   }

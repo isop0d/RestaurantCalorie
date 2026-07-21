@@ -157,6 +157,11 @@ def map_page():
 def map_assets(filename):
     return send_from_directory("dist/assets", filename)
 
+# Root-level static file from the Vite build (e.g. the favicon).
+@app.route("/favicon.svg")
+def favicon():
+    return send_from_directory("dist", "favicon.svg")
+
 
 @app.route("/api/search", methods=["POST"])
 def api_search():

@@ -30,6 +30,18 @@ function SearchFilters({ filters, setFilters, onSearch }) {
   return (
     <div className="filters">
       <div className="filter-group">
+        <label className="filter-label">Zip code</label>
+        <input
+          type="text"
+          inputMode="numeric"
+          className="zip-input"
+          placeholder="e.g. 29204"
+          value={filters.zip}
+          onChange={(e) => update("zip", e.target.value)}
+        />
+      </div>
+
+      <div className="filter-group">
         <label className="filter-label">Calories</label>
         <div className="calorie-presets">
           {CALORIE_PRESETS.map((preset) => (
