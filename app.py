@@ -12,8 +12,16 @@ from flask import (
 from forms import RegistrationForm, LogInForm
 from dotenv import load_dotenv
 from supabase import create_client
-from menu import fetch_and_cache_menu, fetch_menu_items, search_restaurants
+from menu import (
+    fetch_and_cache_menu,
+    fetch_menu_items,
+    get_menu_with_estimates,
+    get_restaurant_with_menu,
+    search_restaurants,
+    search_zip,
+)
 from gemini import estimate_calories
+from concurrent.futures import ThreadPoolExecutor
 import os
 
 
@@ -146,9 +154,10 @@ def logout():
 def index():
     return render_template("index.html")
 
-# React explore/map page
+# React explore/map/restaurant pages (all served by the same built SPA)
 @app.route("/map")
 @app.route("/explore")
+@app.route("/restaurant")
 def map_page():
     return send_from_directory("dist", "index.html")
 
@@ -273,34 +282,63 @@ def api_explore_search():
     except RuntimeError as err:
         return jsonify({"error": str(err)}), 502
 
-    results = []
-    for restaurant in restaurants[:limit]:
+    # Look up each restaurant's menu concurrently. get_menu_with_estimates uses
+    # Supabase as a cache: cold restaurants hit OpenMenu + Gemini once and are
+    # written back; warm ones return from the DB. Running the lookups in parallel
+    # keeps the cold path (up to `limit` restaurants) from stacking sequentially.
+    def lookup(restaurant):
         try:
-            items = fetch_menu_items(restaurant["openmenu_id"])
-            estimates = estimate_calories(items)
-            # Gemini returns calories by name; fold them back onto the items
-            # while keeping the dietary tags OpenMenu already gave us.
-            est_by_name = {e["name"]: e["calories"] for e in estimates}
-            merged = [
-                {
-                    "name": it["name"],
-                    "description": it.get("description"),
-                    "calories": (
-                        it["calories"]
-                        if it.get("calories") is not None
-                        else est_by_name.get(it["name"])
-                    ),
-                    "dietary_tags": it.get("dietary_tags") or [],
-                }
-                for it in items
-            ]
-            results.append({"restaurant": restaurant, "items": merged})
+            items = get_menu_with_estimates(restaurant["openmenu_id"])
+            return {"restaurant": restaurant, "items": items}
         except Exception as err:  # one bad restaurant shouldn't kill the search
-            results.append(
-                {"restaurant": restaurant, "items": [], "error": str(err)}
-            )
+            return {"restaurant": restaurant, "items": [], "error": str(err)}
+
+    with ThreadPoolExecutor(max_workers=max(limit, 1)) as executor:
+        results = list(executor.map(lookup, restaurants[:limit]))
 
     return jsonify({"restaurants": results, "count": len(results)})
+
+
+@app.route("/api/search-zip", methods=["POST"])
+def api_search_zip():
+    """Fast restaurant search by zip, cached in Supabase. Returns just the
+    restaurant list (no menus) so search stays quick — menus load when a
+    restaurant is opened. `limit` controls how many of the cached list to return,
+    so raising it "searches for more restaurants" without re-hitting OpenMenu."""
+    body = request.get_json(silent=True) or {}
+    limit = body.get("limit", 3)
+
+    try:
+        restaurants = search_zip(body.get("postal_code"), body.get("country", "US"))
+    except ValueError as err:
+        return jsonify({"error": str(err)}), 400
+    except RuntimeError as err:
+        return jsonify({"error": str(err)}), 502
+
+    return jsonify(
+        {
+            "restaurants": restaurants[:limit],
+            "count": len(restaurants[:limit]),
+            "total_available": len(restaurants),
+        }
+    )
+
+
+@app.route("/api/restaurant", methods=["POST"])
+def api_restaurant():
+    """Restaurant detail: menu + calorie estimates for one restaurant, fetched on
+    demand (when opened) and cached. This is where the OpenMenu + Gemini cost is
+    paid — once per restaurant a user actually clicks, not during search."""
+    body = request.get_json(silent=True) or {}
+
+    try:
+        data = get_restaurant_with_menu(body.get("openmenu_id"))
+    except ValueError as err:
+        return jsonify({"error": str(err)}), 400
+    except RuntimeError as err:
+        return jsonify({"error": str(err)}), 502
+
+    return jsonify(data)
 
 
 if __name__ == "__main__":

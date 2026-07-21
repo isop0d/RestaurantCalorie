@@ -3,9 +3,12 @@ Supabase. This is a Python port of the former `fetch-menu` Supabase Edge
 Function. Pass openmenu_id="sample" to use OpenMenu's sandbox (no key, no
 credits)."""
 import os
+from datetime import datetime, timezone
 
 import httpx
 from supabase import Client, create_client
+
+from gemini import estimate_calories
 
 OPENMENU_BASE = "https://www.openmenu.com/api/v2"
 
@@ -167,6 +170,95 @@ def fetch_and_cache_menu(openmenu_id: str) -> dict:
     }
 
 
+def _cached_restaurant_id(supabase, openmenu_id):
+    resp = (
+        supabase.table("restaurants")
+        .select("id")
+        .eq("openmenu_id", openmenu_id)
+        .limit(1)
+        .execute()
+    )
+    return resp.data[0]["id"] if resp.data else None
+
+
+def _cached_menu_rows(supabase, restaurant_id):
+    resp = (
+        supabase.table("menu_items")
+        .select(
+            "id, restaurant_id, name, description, calories, dietary_tags, estimated_at"
+        )
+        .eq("restaurant_id", restaurant_id)
+        .execute()
+    )
+    return resp.data or []
+
+
+def _public_item(row):
+    return {
+        "name": row["name"],
+        "description": row.get("description"),
+        "calories": row.get("calories"),
+        "dietary_tags": row.get("dietary_tags") or [],
+    }
+
+
+def get_menu_with_estimates(openmenu_id):
+    """Return a restaurant's menu items WITH calorie estimates, using Supabase
+    as a cache. The first lookup for a restaurant hits OpenMenu + Gemini and
+    writes the results back; later lookups read straight from the DB (fast).
+
+    Returns [{name, description, calories, dietary_tags}].
+    Requires SUPABASE_SERVICE_ROLE_KEY (writes bypass RLS)."""
+    supabase = _admin_client()
+
+    # Warm path: restaurant already cached with a fully-estimated menu.
+    restaurant_id = _cached_restaurant_id(supabase, openmenu_id)
+    if restaurant_id:
+        rows = _cached_menu_rows(supabase, restaurant_id)
+        if rows and all(row.get("estimated_at") for row in rows):
+            return [_public_item(row) for row in rows]
+
+    # Cold path: pull + cache the menu (restaurant + items, no estimates yet),
+    # then re-read the rows we just wrote so we have their ids.
+    fetch_and_cache_menu(openmenu_id)
+    restaurant_id = _cached_restaurant_id(supabase, openmenu_id)
+    rows = _cached_menu_rows(supabase, restaurant_id)
+
+    # Estimate calories for any item that doesn't already have them.
+    missing = [row for row in rows if row.get("calories") is None]
+    if missing:
+        cal_by_name = {
+            est["name"]: est["calories"] for est in estimate_calories(missing)
+        }
+        for row in rows:
+            if row.get("calories") is None:
+                row["calories"] = cal_by_name.get(row["name"])
+
+    # Stamp every row as estimated so future lookups are a warm cache hit, and
+    # write the calories + timestamp back in one batched update (keyed by id).
+    now = datetime.now(timezone.utc).isoformat()
+    if rows:
+        supabase.table("menu_items").upsert(
+            [
+                {
+                    "id": row["id"],
+                    "restaurant_id": row["restaurant_id"],
+                    "name": row["name"],
+                    "description": row.get("description"),
+                    "dietary_tags": row.get("dietary_tags"),
+                    "calories": row.get("calories"),
+                    "estimated_at": now,
+                }
+                for row in rows
+            ],
+            on_conflict="id",
+        ).execute()
+        for row in rows:
+            row["estimated_at"] = now
+
+    return [_public_item(row) for row in rows]
+
+
 def search_restaurants(
     postal_code=None, city=None, state=None, country="US", name=None
 ):
@@ -217,3 +309,54 @@ def search_restaurants(
         }
         for r in restaurants
     ]
+
+
+def search_zip(zip_code, country="US"):
+    """Return the full list of restaurants for a zip, using Supabase as a cache.
+    The first search hits OpenMenu's location.php and stores the whole list; every
+    later search of the same zip is a single DB read. Does NOT fetch menus — those
+    load lazily when a restaurant is opened (see get_restaurant_with_menu).
+
+    Returns [{openmenu_id, name, address, lat, lng, cuisine}].
+    Requires SUPABASE_SERVICE_ROLE_KEY (writes bypass RLS)."""
+    if not zip_code:
+        raise ValueError("A zip code is required")
+
+    supabase = _admin_client()
+
+    cached = (
+        supabase.table("zip_searches")
+        .select("restaurants")
+        .eq("zip", zip_code)
+        .eq("country", country)
+        .limit(1)
+        .execute()
+    )
+    if cached.data:
+        return cached.data[0]["restaurants"]
+
+    found = search_restaurants(postal_code=zip_code, country=country)
+    supabase.table("zip_searches").upsert(
+        {"zip": zip_code, "country": country, "restaurants": found},
+        on_conflict="zip,country",
+    ).execute()
+    return found
+
+
+def get_restaurant_with_menu(openmenu_id):
+    """Restaurant detail: the restaurant's basic info plus its menu with calorie
+    estimates (cached). Called when a user opens a restaurant, so the expensive
+    OpenMenu + Gemini work happens once, on demand — not during search.
+
+    Returns {restaurant: {openmenu_id, name, address, lat, lng}, items: [...]}."""
+    items = get_menu_with_estimates(openmenu_id)  # ensures the restaurant is cached
+    supabase = _admin_client()
+    resp = (
+        supabase.table("restaurants")
+        .select("openmenu_id, name, address, lat, lng")
+        .eq("openmenu_id", openmenu_id)
+        .limit(1)
+        .execute()
+    )
+    restaurant = resp.data[0] if resp.data else {"openmenu_id": openmenu_id}
+    return {"restaurant": restaurant, "items": items}
