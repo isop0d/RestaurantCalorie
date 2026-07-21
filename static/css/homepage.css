@@ -75,7 +75,7 @@ a {
 }
 
 .signup-button {
-  background: #b9cf8c;
+  background: url('/static/scribble.png') repeat;
 }
 
 .hero {
@@ -129,7 +129,7 @@ a {
   border-radius: 16px;
   padding: 20px 40px;
 
-  background: #c3d69a;
+  background: url('/static/scribble.png') repeat;
   font-size: 30px;
 
   display: flex;
