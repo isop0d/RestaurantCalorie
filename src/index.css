@@ -511,3 +511,14 @@ a {
   border: 1px solid #ccc;
   border-radius: 10px;
 }
+
+/* Text inputs in the filter panels (zip search + menu food search). */
+.zip-input,
+.menu-search {
+  padding: 8px 10px;
+  border: 1px solid #999;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 16px;
+  max-width: 340px;
+}

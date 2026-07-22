@@ -40,6 +40,7 @@ function Restaurant() {
   const [minCal, setMinCal] = useState("")
   const [maxCal, setMaxCal] = useState("")
   const [dietary, setDietary] = useState([])
+  const [query , setQuery] = useState("")
 
   useEffect(() => {
     if (!openmenuId) {
@@ -84,10 +85,17 @@ function Restaurant() {
     )
 
   const items = data?.items || []
-  const filtered = useMemo(
-    () => items.filter((it) => itemMatches(it, { minCal, maxCal, dietary })),
-    [items, minCal, maxCal, dietary]
-  )
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return items.filter((it) => {
+      if (!itemMatches(it, { minCal, maxCal, dietary })) return false
+      if (q) {
+        const haystack = `${it.name} ${it.description || ""}`.toLowerCase()
+        if (!haystack.includes(q)) return false
+      }
+      return true
+    })
+  }, [items, query, minCal, maxCal, dietary])
 
   return (
     <main className="explore">
@@ -113,6 +121,17 @@ function Restaurant() {
           )}
 
           <div className="filters">
+            <div className="filter-group">
+              <label className="filter-label">Search menu</label>
+              <input
+                type="text"
+                className="menu-search"
+                placeholder="Search dishes… e.g. coffee"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+
             <div className="filter-group">
               <label className="filter-label">Calories</label>
               <div className="calorie-presets">
