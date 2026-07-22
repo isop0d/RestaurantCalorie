@@ -1,83 +1,91 @@
 import { useMemo, useState } from "react"
 import Map from "../components/Map"
 import SearchFilters from "../components/SearchFilters"
-import {
-  SAMPLE_RESTAURANTS,
-  fetchRealRestaurants,
-  filterRestaurants,
-} from "../lib/restaurantSearch"
+import { searchRestaurants, withinDistance } from "../lib/restaurantSearch"
 
-// The user's starting point for distance. Defaults to the map center (NYC);
-// if the browser shares location we could update this later.
+// Fallback reference point for distance (NYC) until a search anchors it to the
+// searched area.
 const DEFAULT_USER = { lat: 40.7128, lng: -74.006 }
+// How many more restaurants each "Show more" adds.
+const PAGE = 3
 
-// The Explore page: live map on top, then a search form to filter restaurants
-// by calories, dietary restrictions, and distance from the user.
-function Explore({ username }) {
-  // The controls' current values.
-  const [filters, setFilters] = useState({
-    zip: "",
-    minCalories: "",
-    maxCalories: "",
-    dietary: [],
-    maxDistance: 10,
-  })
-
-  // The restaurants we filter over. We try real API data first and quietly
-  // fall back to sample data if the API is not available on this machine.
-  const [restaurants, setRestaurants] = useState(SAMPLE_RESTAURANTS)
-  // Only recompute the filtered results when the user presses Search.
-  const [appliedFilters, setAppliedFilters] = useState(null)
-  const [loading, setLoading] = useState(false)
-  // Reference point for the distance filter — updated to the searched area on
-  // each search so distances make sense for any zip, not just New York.
-  const [userLocation, setUserLocation] = useState(DEFAULT_USER)
-
-  // Run the filters over the current restaurant list.
-  const results = useMemo(() => {
-    if (!appliedFilters) return []
-    return filterRestaurants(restaurants, {
-      minCalories: appliedFilters.minCalories === "" ? null : Number(appliedFilters.minCalories),
-      maxCalories: appliedFilters.maxCalories === "" ? null : Number(appliedFilters.maxCalories),
-      dietary: appliedFilters.dietary,
-      maxDistance: appliedFilters.maxDistance,
-      userLat: userLocation.lat,
-      userLng: userLocation.lng,
-    })
-  }, [restaurants, appliedFilters, userLocation])
-
-  const handleSearch = async () => {
-    setLoading(true)
-    // Search by the entered zip code. If it's blank, or the API returns nothing
-    // (no keys, offline, or a zip OpenMenu doesn't cover), fall back to sample
-    // data so the page still shows something to work with.
-    const zip = filters.zip.trim()
-    const real = zip ? await fetchRealRestaurants({ postal_code: zip }) : null
-    const list = real || SAMPLE_RESTAURANTS
-    setRestaurants(list)
-
-    // Anchor the distance filter to the average location of the results, so
-    // "within N miles" is measured from the searched area rather than New York.
-    const located = list.filter((e) => typeof e.restaurant.lat === "number")
-    setUserLocation(
-      located.length > 0
-        ? {
-            lat: located.reduce((s, e) => s + e.restaurant.lat, 0) / located.length,
-            lng: located.reduce((s, e) => s + e.restaurant.lng, 0) / located.length,
-          }
-        : DEFAULT_USER
-    )
-
-    setAppliedFilters({ ...filters })
-    setLoading(false)
+// Average lat/lng of the restaurants that have coordinates, or null.
+function averageLocation(list) {
+  const located = list.filter((r) => typeof r.lat === "number")
+  if (located.length === 0) return null
+  return {
+    lat: located.reduce((s, r) => s + r.lat, 0) / located.length,
+    lng: located.reduce((s, r) => s + r.lng, 0) / located.length,
   }
+}
+
+// The Explore page: search restaurants by zip, filter by distance, and open one
+// to see its menu. Menus load on the restaurant page (not here), so search is fast.
+function Explore({ username }) {
+  const [filters, setFilters] = useState({ zip: "", maxDistance: 10 })
+  const [restaurants, setRestaurants] = useState([])
+  const [totalAvailable, setTotalAvailable] = useState(0)
+  const [limit, setLimit] = useState(PAGE)
+  const [userLocation, setUserLocation] = useState(DEFAULT_USER)
+  const [searched, setSearched] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+
+  // Filter by distance live as the slider moves (no re-fetch needed).
+  const results = useMemo(
+    () =>
+      withinDistance(
+        restaurants,
+        userLocation.lat,
+        userLocation.lng,
+        filters.maxDistance
+      ),
+    [restaurants, userLocation, filters.maxDistance]
+  )
+
+  const runSearch = async (searchLimit) => {
+    const zip = filters.zip.trim()
+    if (!zip) {
+      setError("Enter a zip code to search.")
+      return
+    }
+    setLoading(true)
+    setError("")
+    try {
+      const { restaurants: found, totalAvailable: total } =
+        await searchRestaurants(zip, searchLimit)
+      setRestaurants(found)
+      setTotalAvailable(total)
+      setUserLocation(averageLocation(found) || DEFAULT_USER)
+      setSearched(true)
+    } catch (err) {
+      setError(err.message || "Search failed.")
+      setRestaurants([])
+      setTotalAvailable(0)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSearch = () => {
+    setLimit(PAGE)
+    runSearch(PAGE)
+  }
+
+  const handleShowMore = () => {
+    const next = limit + PAGE
+    setLimit(next)
+    runSearch(next)
+  }
+
+  const canShowMore = searched && !loading && totalAvailable > restaurants.length
 
   return (
     <main className="explore">
       <h1 className="explore-title">Explore Restaurants</h1>
       <p className="explore-welcome">
-        Welcome, {username}! Search restaurants by calories, dietary needs, and
-        distance.
+        Welcome, {username}! Search restaurants by zip, then open one to see its
+        menu and calorie estimates.
       </p>
 
       <Map />
@@ -90,40 +98,42 @@ function Explore({ username }) {
 
       <div className="results">
         {loading && <p className="no-results">Searching…</p>}
-
-        {!loading && appliedFilters && results.length === 0 && (
-          <p className="no-results">No restaurants match those filters.</p>
+        {!loading && error && <p className="no-results">{error}</p>}
+        {!loading && !error && searched && results.length === 0 && (
+          <p className="no-results">
+            No restaurants found near that zip. Try a wider distance or another
+            zip.
+          </p>
         )}
 
         {!loading &&
-          results.map((entry) => (
-            <div key={entry.restaurant.name} className="result-card">
+          results.map((r) => (
+            <a
+              key={r.openmenu_id}
+              className="result-card result-card-link"
+              href={`/restaurant?id=${encodeURIComponent(r.openmenu_id)}`}
+            >
               <div className="result-head">
-                <h3>{entry.restaurant.name}</h3>
-                {entry.distance != null && (
-                  <span className="distance">{entry.distance.toFixed(1)} mi</span>
+                <h3>{r.name}</h3>
+                {r.distance != null && (
+                  <span className="distance">{r.distance.toFixed(1)} mi</span>
                 )}
               </div>
-              {entry.restaurant.cuisine && (
-                <p className="cuisine">{entry.restaurant.cuisine}</p>
-              )}
-              <ul className="item-list">
-                {entry.items.map((item) => (
-                  <li key={item.name}>
-                    <span className="item-name">{item.name}</span>
-                    <span className="item-cals">
-                      {item.calories != null ? `${item.calories} cal` : "—"}
-                    </span>
-                    {item.dietary_tags?.length > 0 && (
-                      <span className="item-tags">
-                        {item.dietary_tags.join(", ")}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
+              {r.cuisine && <p className="cuisine">{r.cuisine}</p>}
+              {r.address && <p className="result-address">{r.address}</p>}
+              <span className="view-menu">View menu →</span>
+            </a>
           ))}
+
+        {canShowMore && (
+          <button
+            type="button"
+            className="search-button show-more"
+            onClick={handleShowMore}
+          >
+            Show more restaurants
+          </button>
+        )}
       </div>
     </main>
   )

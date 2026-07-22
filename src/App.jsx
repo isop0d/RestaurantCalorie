@@ -1,6 +1,7 @@
 import Navbar from "./components/Navbar";
 import Hero from "./components/Hero";
 import Explore from "./pages/Explore";
+import Restaurant from "./pages/Restaurant";
 import "./index.css";
 
 function App() {
@@ -8,15 +9,19 @@ function App() {
   // Fall back to "there" if it is not set so the greeting still reads well.
   const username = window.username || 'there'
 
-  // Simple routing without a library: look at the URL path and pick a page.
-  // "/explore" shows the live map, anything else shows the home hero.
+  // Simple routing without a library: pick a page from the URL path.
+  //   /restaurant -> restaurant detail (menu)
+  //   /explore    -> search page
+  //   anything else -> home hero
   const path = window.location.pathname
-  const showExplore = path.startsWith("/explore")
+  let page = <Hero />
+  if (path.startsWith("/restaurant")) page = <Restaurant />
+  else if (path.startsWith("/explore")) page = <Explore username={username} />
 
   return (
     <>
       <Navbar />
-      {showExplore ? <Explore username={username} /> : <Hero />}
+      {page}
     </>
   );
 }

@@ -469,3 +469,45 @@ a {
   font-size: 13px;
   color: #6d9d57;
 }
+
+/* Clickable restaurant cards (each links to the restaurant page). */
+.result-card-link {
+  display: block;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s, transform 0.15s;
+}
+
+.result-card-link:hover {
+  border-color: #6d9d57;
+  transform: translateY(-2px);
+}
+
+.result-address {
+  margin: 0 0 10px;
+  color: #777;
+  font-size: 14px;
+}
+
+.view-menu {
+  color: #6d9d57;
+  font-weight: bold;
+}
+
+.show-more {
+  align-self: center;
+}
+
+/* Restaurant detail page */
+.back-link {
+  display: inline-block;
+  margin-bottom: 10px;
+  color: #6d9d57;
+  font-size: 18px;
+}
+
+.menu-list {
+  padding: 16px;
+  border: 1px solid #ccc;
+  border-radius: 10px;
+}
