@@ -1,8 +1,9 @@
-"""Gemini calorie estimation. Given menu items (name + description), ask Gemini
-for a rough calorie estimate per item and return structured JSON.
+"""Gemini nutrition estimation. Given menu items (name + description), ask Gemini
+for a rough calorie estimate AND inferred dietary tags per item, returned as
+structured JSON. One Gemini call per menu (all items batched together).
 
-Basic MVP: calories only, estimated from the item name/description. One Gemini
-call per menu (all items batched together)."""
+Both calories and dietary tags are best-guess inferences from the item text, not
+verified facts."""
 import json
 import os
 
@@ -14,18 +15,24 @@ GEMINI_URL = (
     f"{GEMINI_MODEL}:generateContent"
 )
 
+# Dietary tags Gemini may assign. Limited to what's inferable from an item's name
+# and description — kosher/halal depend on preparation/certification, so we don't
+# ask Gemini to guess those.
+DIETARY_TAGS = ["vegetarian", "vegan", "gluten-free"]
+
 
 def estimate_calories(items):
     """items: list of dicts with "name" and optional "description".
-    Returns: list of {"name": str, "calories": int}."""
+    Returns: list of {"name": str, "calories": int, "dietary_tags": [str]}.
+    Calories and dietary_tags are Gemini best-guesses from the item text."""
     api_key = os.environ.get("VITE_GEMINI_API_KEY")
     if not api_key:
         raise RuntimeError("VITE_GEMINI_API_KEY is not configured")
     if not items:
         return []
 
-    # Number each item so Gemini answers by index — we map calories back onto
-    # our own item names, avoiding fragile name-string matching.
+    # Number each item so Gemini answers by index — we map results back onto our
+    # own item names, avoiding fragile name-string matching.
     menu_lines = []
     for i, item in enumerate(items):
         name = (item.get("name") or "").strip()
@@ -38,10 +45,15 @@ def estimate_calories(items):
 
     prompt = (
         "You are a nutrition estimator. Each line below is a menu item prefixed "
-        "by its index. Estimate the total calories of a typical single serving "
-        "for each, using the name and description. Always give a best-guess "
-        'integer even when unsure. Return a JSON array of {"index": <the item '
-        'index>, "calories": <integer>}.\n\nMenu:\n' + menu_text
+        "by its index. For each item, using its name and description:\n"
+        "1. Estimate the total calories of a typical single serving (always give "
+        "a best-guess integer, even when unsure).\n"
+        "2. List which of these dietary tags clearly apply: "
+        + ", ".join(DIETARY_TAGS)
+        + ". Only include a tag when the item clearly qualifies; use an empty "
+        "list when unsure or none apply.\n\n"
+        'Return a JSON array of {"index": <item index>, "calories": <integer>, '
+        '"dietary_tags": [<tags>]}.\n\nMenu:\n' + menu_text
     )
 
     body = {
@@ -55,8 +67,12 @@ def estimate_calories(items):
                     "properties": {
                         "index": {"type": "INTEGER"},
                         "calories": {"type": "INTEGER"},
+                        "dietary_tags": {
+                            "type": "ARRAY",
+                            "items": {"type": "STRING", "enum": DIETARY_TAGS},
+                        },
                     },
-                    "required": ["index", "calories"],
+                    "required": ["index", "calories", "dietary_tags"],
                 },
             },
         },
@@ -69,9 +85,13 @@ def estimate_calories(items):
     text = data["candidates"][0]["content"]["parts"][0]["text"]
     estimates = json.loads(text)
 
-    # Map calories back onto our items by index.
-    by_index = {e["index"]: e["calories"] for e in estimates if "index" in e}
+    # Map results back onto our items by index.
+    by_index = {e["index"]: e for e in estimates if "index" in e}
     return [
-        {"name": item.get("name"), "calories": by_index.get(i)}
+        {
+            "name": item.get("name"),
+            "calories": by_index.get(i, {}).get("calories"),
+            "dietary_tags": by_index.get(i, {}).get("dietary_tags") or [],
+        }
         for i, item in enumerate(items)
     ]

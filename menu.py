@@ -202,21 +202,26 @@ def _public_item(row):
     }
 
 
-def get_menu_with_estimates(openmenu_id):
+def get_menu_with_estimates(openmenu_id, refresh=False):
     """Return a restaurant's menu items WITH calorie estimates, using Supabase
     as a cache. The first lookup for a restaurant hits OpenMenu + Gemini and
     writes the results back; later lookups read straight from the DB (fast).
+
+    Pass refresh=True to bypass the cache and re-run OpenMenu + Gemini — e.g. to
+    pick up newly-added dietary tags on a restaurant that was cached earlier.
 
     Returns [{name, description, calories, dietary_tags}].
     Requires SUPABASE_SERVICE_ROLE_KEY (writes bypass RLS)."""
     supabase = _admin_client()
 
-    # Warm path: restaurant already cached with a fully-estimated menu.
-    restaurant_id = _cached_restaurant_id(supabase, openmenu_id)
-    if restaurant_id:
-        rows = _cached_menu_rows(supabase, restaurant_id)
-        if rows and all(row.get("estimated_at") for row in rows):
-            return [_public_item(row) for row in rows]
+    # Warm path: restaurant already cached with a fully-estimated menu. Skipped
+    # on refresh so we re-estimate from scratch.
+    if not refresh:
+        restaurant_id = _cached_restaurant_id(supabase, openmenu_id)
+        if restaurant_id:
+            rows = _cached_menu_rows(supabase, restaurant_id)
+            if rows and all(row.get("estimated_at") for row in rows):
+                return [_public_item(row) for row in rows]
 
     # Cold path: pull + cache the menu (restaurant + items, no estimates yet),
     # then re-read the rows we just wrote so we have their ids.
@@ -224,15 +229,17 @@ def get_menu_with_estimates(openmenu_id):
     restaurant_id = _cached_restaurant_id(supabase, openmenu_id)
     rows = _cached_menu_rows(supabase, restaurant_id)
 
-    # Estimate calories for any item that doesn't already have them.
-    missing = [row for row in rows if row.get("calories") is None]
-    if missing:
-        cal_by_name = {
-            est["name"]: est["calories"] for est in estimate_calories(missing)
-        }
+    # Ask Gemini for calorie estimates + inferred dietary tags (one call), then
+    # merge onto our rows: keep any calories OpenMenu already gave us, fill the
+    # rest from Gemini, and union Gemini's dietary tags with OpenMenu's.
+    if rows:
+        gemini_by_name = {est["name"]: est for est in estimate_calories(rows)}
         for row in rows:
+            est = gemini_by_name.get(row["name"], {})
             if row.get("calories") is None:
-                row["calories"] = cal_by_name.get(row["name"])
+                row["calories"] = est.get("calories")
+            tags = [*(row.get("dietary_tags") or []), *(est.get("dietary_tags") or [])]
+            row["dietary_tags"] = list(dict.fromkeys(tags)) or None
 
     # Stamp every row as estimated so future lookups are a warm cache hit, and
     # write the calories + timestamp back in one batched update (keyed by id).
@@ -343,13 +350,15 @@ def search_zip(zip_code, country="US"):
     return found
 
 
-def get_restaurant_with_menu(openmenu_id):
+def get_restaurant_with_menu(openmenu_id, refresh=False):
     """Restaurant detail: the restaurant's basic info plus its menu with calorie
     estimates (cached). Called when a user opens a restaurant, so the expensive
     OpenMenu + Gemini work happens once, on demand — not during search.
 
+    Pass refresh=True to force a re-estimate (bypasses the cache).
+
     Returns {restaurant: {openmenu_id, name, address, lat, lng}, items: [...]}."""
-    items = get_menu_with_estimates(openmenu_id)  # ensures the restaurant is cached
+    items = get_menu_with_estimates(openmenu_id, refresh=refresh)
     supabase = _admin_client()
     resp = (
         supabase.table("restaurants")

@@ -332,7 +332,9 @@ def api_restaurant():
     body = request.get_json(silent=True) or {}
 
     try:
-        data = get_restaurant_with_menu(body.get("openmenu_id"))
+        data = get_restaurant_with_menu(
+            body.get("openmenu_id"), refresh=bool(body.get("refresh"))
+        )
     except ValueError as err:
         return jsonify({"error": str(err)}), 400
     except RuntimeError as err:

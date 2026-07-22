@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 
 const DIETARY_OPTIONS = [
   { value: "vegetarian", label: "Vegetarian" },
@@ -36,48 +36,47 @@ function Restaurant() {
   const [data, setData] = useState(null) // { restaurant, items }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
+  const [refreshing, setRefreshing] = useState(false)
 
   const [minCal, setMinCal] = useState("")
   const [maxCal, setMaxCal] = useState("")
   const [dietary, setDietary] = useState([])
   const [query , setQuery] = useState("")
 
-  useEffect(() => {
-    if (!openmenuId) {
-      setError("No restaurant specified.")
-      setLoading(false)
-      return
-    }
-    let cancelled = false
-    setLoading(true)
-    fetch("/api/restaurant", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ openmenu_id: openmenuId }),
-    })
-      .then(async (resp) => {
+  const loadMenu = useCallback(
+    async (refresh = false) => {
+      if (!openmenuId) {
+        setError("No restaurant specified.")
+        setLoading(false)
+        return
+      }
+      if (refresh) setRefreshing(true)
+      else setLoading(true)
+      setError("")
+      try {
+        const resp = await fetch("/api/restaurant", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ openmenu_id: openmenuId, refresh }),
+        })
         if (!resp.ok) {
           const d = await resp.json().catch(() => ({}))
           throw new Error(d.error || `Failed to load menu (${resp.status})`)
         }
-        return resp.json()
-      })
-      .then((d) => {
-        if (!cancelled) {
-          setData(d)
-          setLoading(false)
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) {
-          setError(err.message || "Failed to load menu.")
-          setLoading(false)
-        }
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [openmenuId])
+        setData(await resp.json())
+      } catch (err) {
+        setError(err.message || "Failed to load menu.")
+      } finally {
+        setLoading(false)
+        setRefreshing(false)
+      }
+    },
+    [openmenuId]
+  )
+
+  useEffect(() => {
+    loadMenu(false)
+  }, [loadMenu])
 
   const toggleDietary = (value) =>
     setDietary((prev) =>
@@ -119,6 +118,15 @@ function Restaurant() {
           {data.restaurant?.address && (
             <p className="explore-welcome">{data.restaurant.address}</p>
           )}
+          <button
+            type="button"
+            className="search-button"
+            onClick={() => loadMenu(true)}
+            disabled={refreshing}
+            title="Re-run the calorie + dietary-tag estimates for this menu"
+          >
+            {refreshing ? "Re-estimating…" : "Re-estimate menu"}
+          </button>
 
           <div className="filters">
             <div className="filter-group">
